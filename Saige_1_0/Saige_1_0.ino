@@ -1,3 +1,6 @@
+
+
+
 //Project Saige
 
 //Libraries used
@@ -5,12 +8,41 @@
 #include <Adafruit_PCF8574.h>  //Library for PCF8574 GPIO expander, opens up 8 GPIO pins through one address 0x20
 #include <TFT_eSPI.h>
 #include <debounce.h>
+#include <animation.h>
+//#include <Adafruit_ImageReader.h>
+//#include <Adafruit_ImageReader_EPD.h>
+//#include <SdFat_Adafruit_Fork.h>
+//#include <Adafruit_GFX.h>
+//#include <Adafruit_GrayOLED.h>
+//#include <Adafruit_SPITFT.h>
+//#include <Adafruit_SPITFT_Macros.h>
+//#include <gfxfont.h>
+
+#include <TJpg_Decoder.h>
+#define FS_NO_GLOBALS
+#include <FS.h>
+#ifdef ESP32
+#include "SPIFFS.h"  // ESP32 only
+#endif
+#define SD_CS 5
+#include "SPI.h"
+
 // The available pins on the CYD are
 // GPIO 35 — on the P3 connector, GPIO 22 — on the P3 and CN1 connector, GPIO 27 — on the CN1 connector.
 // GPIO 27 will be used for SERIAL DATA for I2C communication.
 // GPIO 22 will be used for SERIAL CLOCK for I2C Communication.
 #define I2C_SDA 27  //Sets I2C Data to GPIO pin 27.
 #define I2C_SCL 22  //Sets I2c Clock to GPIO pin 22.
+
+// #define BL_PIN 21 // On some cheap yellow display model, BL pin is 27
+// #define SD_CS 5 //SD reader chip select pin
+// #define SD_MISO 19 //SD reader Master In/Slave Out pin
+// #define SD_MOSI 23 //SD reader Master out/Slave in pin
+// #define SD_SCK 18 //SD reader clock pin
+// #define SD_SPI_SPEED 80000000L      // 80Mhz
+
+//Adafruit_SPITFT tft();
+//SPIClass SDspi = SPIClass(VSPI);
 
 #define PCF_BUTTON_A 6    //Initializes GPIO pin 6 of the PCF8574.
 #define PCF_BUTTON_B 5    //Initializes GPIO pin 5 of the PCF8574.
@@ -22,11 +54,13 @@
 #define SCREEN_HEIGHT 240  //Sets the screen hight at 240 pixels.
 #define FONT_SIZE 2        //Sets the font size.
 
+
+
 hw_timer_t *stomachTimer = NULL;  //declared timer
 hw_timer_t *fatigueTimer = NULL;  //declared timer
 
 TFT_eSPI screen = TFT_eSPI();  //TFT_eSPI type object names Screen used to control the TFT Display.
-
+TFT_eSprite sprite = TFT_eSprite(&screen);
 //To begin I2C communication with ESP32 first you must construct the Wire object of class TwoWire.
 //If we choose to add more I2C periferals we would define them as TwoWire(1),TwoWire(2), etc.
 TwoWire PCF8574 = TwoWire(0);
@@ -36,7 +70,8 @@ TwoWire PCF8574 = TwoWire(0);
 Adafruit_PCF8574 pcf;
 
 //static constexpr int buttonA = 6;
-
+//SdFat SD;                           // SD card filesystem
+//Adafruit_ImageReader imReader(SD);  // Image-reader object, pass in SD filesys
 
 bool inter = 0;  //keeps track of the state of the Interrupt flag.
 bool butA = 0;   //keeps track of the state of the button press for buttonA.
@@ -50,6 +85,10 @@ bool screenLoaded = false;  //Variable that keeps track wether a screen has been
 int currentScreen = 0;      //Variable that keeps track of what is the current screen.
 int steps = 0;              //Variable that keeps track of steps.
 int progress;
+int c = 0;
+
+const unsigned long nextFrm = 500;
+unsigned long frm = 0;
 
 
 
@@ -79,6 +118,12 @@ void setup() {
   pinMode(ADA_INTER_PIN, INPUT);  //sets the interupt pin to input and sets on the internal pullup resistor.
   attachInterrupt(digitalPinToInterrupt(ADA_INTER_PIN), inputRead, FALLING);
 
+  if (!SD.begin(SD_CS)) {
+    Serial.println(F("SD.begin failed!"));
+    while (1) delay(0);
+  }
+  Serial.println("\r\nInitialisation done.");
+
   // Start the tft display
   screen.init();
   // Set the TFT display rotation in landscape mode
@@ -87,19 +132,48 @@ void setup() {
   screen.fillScreen(TFT_BLACK);
   screen.setTextColor(TFT_ORANGE, TFT_BLACK);
   screen.setTextSize(4);
-
+  screen.setSwapBytes(true);
+  // The jpeg image can be scaled by a factor of 1, 2, 4, or 8
+  TJpgDec.setJpgScale(1);
+  // The decoder must be given the exact name of the rendering function above
+  TJpgDec.setCallback(tft_output);
   // Set X and Y coordinates for center of display
   int centerX = SCREEN_WIDTH / 2;
   int centerY = SCREEN_HEIGHT / 2;
 
   stomachTimer = timerBegin(1000000);                     //start the timer
   timerAttachInterrupt(stomachTimer, &stomachCountDown);  //attach interrupt tp timer and function
-  timerAlarm(stomachTimer, 180000000, true, 0);             //alarms are flags at specific counts in the timer.
+  timerAlarm(stomachTimer, 180000000, true, 0);           //alarms are flags at specific counts in the timer.
 
   fatigueTimer = timerBegin(1000000);
   timerAttachInterrupt(fatigueTimer, &fatigueCountDown);
   timerAlarm(fatigueTimer, 420000000, true, 0);
+
+  screen.fillScreen(TFT_WHITE);
+  TJpgDec.drawSdJpg(-1, -25, "/foBackgr.jpg");
+  sprite.createSprite(43, 64);
+  sprite.setSwapBytes(true);
+  // sprite.pushImage(0, 0, 114, 156, knghtid);
+  // sprite.pushSprite(100, 90, TFT_WHITE);
+  //screen.drawBitmap(0,0,/frBackgr,320,240,TFT_WHITE);
+
+  // imReader.drawBMP("/foBackgr.bmp", *tft, 0, 0);
 }
+
+bool tft_output(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap) {
+  // Stop further decoding as image is running off bottom of screen
+  if (y >= screen.height()) return 0;
+
+  // This function will clip the image block rendering automatically at the TFT boundaries
+  screen.pushImage(x, y, w, h, bitmap);
+
+  // This might work instead if you adapt the sketch to use the Adafruit_GFX library
+  // tft.drawRGBBitmap(x, y, bitmap, w, h);
+
+  // Return 1 to decode next block
+  return 1;
+}
+
 
 
 void inputRead(void) {
@@ -118,6 +192,7 @@ static void buttonA_Handler(uint8_t btnId, uint8_t btnState) {
     butA = 0;
   }
 }
+
 
 
 static void buttonB_Handler(uint8_t btnId, uint8_t btnState) {
@@ -160,6 +235,7 @@ static Button myButtonA(0, buttonA_Handler);
 static Button myButtonB(1, buttonB_Handler);
 static Button myButtonC(2, buttonC_Handler);
 static Button myStep(3, step_Handler);
+
 
 
 void manageInter() {
@@ -476,15 +552,47 @@ void ARDUINO_ISR_ATTR fatigueCountDown() {
   }
 }
 
-void loop() {
-  loadScreen(screenLoaded, currentScreen, steps, stomach);
-  manageScreen(screenLoaded, currentScreen, butA, butB, butC, stomach, fatigue);
-  manageInter();
-  Serial.println(stomach);
-  //Serial.println(fatigue);
+void knightIdle(int c) {
+  for (int i = 0; i < 2000; i++) {
+    if (c >= 0 && c <= 499) {
+      sprite.pushImage(0, 0, 43, 64, knigthIdle[0]);
+      sprite.pushSprite(150, 164, TFT_WHITE);
+      c++;
+      Serial.println(c);
+    } else if (c >= 500 && c <= 999) {
+      sprite.pushImage(0, 0, 43, 64, knigthIdle[1]);
+      sprite.pushSprite(150, 164, TFT_WHITE);
+      c++;
+      Serial.println(c);
+    } else if (c >= 1000 && c <= 1499) {
+      sprite.pushImage(0, 0, 43, 64, knigthIdle[2]);
+      sprite.pushSprite(150, 164, TFT_WHITE);
+      c++;
+      Serial.println(c);
+    } else if (c >= 1500 && c <= 2000) {
+      sprite.pushImage(0, 0, 43, 64, knigthIdle[3]);
+      sprite.pushSprite(150, 164, TFT_WHITE);
+      c++;
+      Serial.println(c);
+    } else if (c >= 2000) {
+      i = 0;
+      c = 0;
+    }
+  }
 }
 
+void loop() {
+  knightIdle(c);
 
+  // for (int i = 0; i < frames; i++) {
+  //   sprite.pushImage(0, 0, 43, 64, knigthIdle[i]);
+  //   sprite.pushSprite(150, 164, TFT_WHITE);
+  // }
+  //loadScreen(screenLoaded, currentScreen, steps, stomach);
+  //manageScreen(screenLoaded, currentScreen, butA, butB, butC, stomach, fatigue);
+  //manageInter();
+  //Serial.println(fatigue);
+}
 
 // A button Cycles through options
 // B button selects options
