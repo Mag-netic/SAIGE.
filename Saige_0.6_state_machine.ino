@@ -41,8 +41,10 @@ unsigned long lastTimeStep_StateChanged = millis();     //debounce variable.
 unsigned long debounceDuration = 50;                    //amount of millis() system waits for button press.
 unsigned long stepDebounceDuration = 500;               //amount of millis() system waits for step counter.
 
-int stepCount;  //step count variable.
 
+bool screenLoaded = false;
+int currentScreen = 0;
+int steps = 0;
 
 void setup() {
   Serial.begin(115200);          //Begins serial communication.
@@ -76,7 +78,9 @@ void setup() {
   screen.setRotation(3);
   // Clear the screen before writing to it
   screen.fillScreen(TFT_BLACK);
-  screen.setTextColor(TFT_WHITE, TFT_WHITE);
+  screen.setTextColor(TFT_ORANGE, TFT_BLACK);
+  screen.setTextSize(4);
+
   // Set X and Y coordinates for center of display
   int centerX = SCREEN_WIDTH / 2;
   int centerY = SCREEN_HEIGHT / 2;
@@ -142,7 +146,7 @@ void getButtonC() {
   }
 }
 
-void getStep(void) {
+void getStep() {
 
   int lastStep_State = 1;
   int step_Value = pcf.digitalRead(STEP_PIN);
@@ -155,10 +159,9 @@ void getStep(void) {
       lastTimeStep_StateChanged = millis();
       lastStep_State = stepState;
       if (step_Value == 0) {
-        stepCount++;
-        Serial.println(stepCount);
+        steps++;
+        Serial.println(steps);
         //screen.drawCentreString("STEPS" + stepCount, centerX, 25, FONT_SIZE);
-        screen.print(stepCount);
         inter = 0;
       }
     }
@@ -176,31 +179,111 @@ void manageInter() {
   int buttonC_Value = pcf.digitalRead(PCF_BUTTON_C);
   int step_Value = pcf.digitalRead(STEP_PIN);
 
-  if (inter == 1 && buttonA_Value == 0){ 
-  {
-    Serial.println("buttonA");
-    inter = 0;
-  } 
-  }else if (inter == 1 && buttonB_Value == 0) 
-  {
+  if (inter == 1 && buttonA_Value == 0) {
+    {
+      Serial.println("buttonA");
+      inter = 0;
+    }
+  } else if (inter == 1 && buttonB_Value == 0) {
     Serial.println("buttonB");
     inter = 0;
-  } 
-  else if (inter == 1 && buttonC_Value == 0) 
-  {
+  } else if (inter == 1 && buttonC_Value == 0) {
     Serial.println("buttonC");
     inter = 0;
-  } 
-  else if (inter == 1 && step_Value == 1) 
-  {
+  } else if (inter == 1 && step_Value == 1) {
     Serial.println("step");
+    steps++;
     inter = 0;
   }
 }
 
+void loadScreen(bool &screenLoaded, int &currentScreen, int &steps) {
+  if (screenLoaded == false && currentScreen == 0) {
+    screen.fillScreen(TFT_BLACK);
+    screen.setTextSize(4);
+    screen.drawString("MAIN.", 80, 100);
+    Serial.println("main.");
+    screenLoaded = true;
+  } else if (screenLoaded == false && currentScreen == 1) {
+    screen.setTextColor(TFT_BLACK, TFT_BLACK);
+    screen.drawString("MAIN.", 80, 100);
+    screen.setTextColor(TFT_ORANGE, TFT_BLACK);
+    screen.drawString("STEP.", 80, 100);
+    screen.drawNumber(steps, 80, 150);
+    Serial.println("STEP.");
+    screenLoaded = true;
+  } else if (screenLoaded == false && currentScreen == 2) {
+    //screen.setTextColor(TFT_BLACK, TFT_BLACK);
+    //screen.drawString("STEP.", 80, 100);
+    //screen.drawNumber(steps, 80, 150);
+    screen.fillScreen(TFT_BLACK);
+    screen.setTextColor(TFT_ORANGE, TFT_BLACK);
+    screen.drawString("STAT.", 80, 100);
+    Serial.println("STAT.");
+    screenLoaded = true;
+  } else if (screenLoaded == false && currentScreen == 3) {
+    screen.setTextColor(TFT_BLACK, TFT_BLACK);
+    screen.drawString("STAT.", 80, 100);
+    screen.setTextColor(TFT_ORANGE, TFT_BLACK);
+    screen.drawString("HUNGER.", 80, 100);
+    Serial.println("HUNGER.");
+    screenLoaded = true;
+  } else if (screenLoaded == false && currentScreen == 4) {
+    screen.setTextColor(TFT_BLACK, TFT_BLACK);
+    screen.drawString("HUNGER.", 80, 100);
+    screen.setTextColor(TFT_ORANGE, TFT_BLACK);
+    screen.drawString("SLEEP.", 80, 100);
+    Serial.println("SLEEP.");
+    screenLoaded = true;
+  } else if (screenLoaded == false && currentScreen == 5) {
+    screen.setTextColor(TFT_BLACK, TFT_BLACK);
+    screen.drawString("SLEEP.", 80, 100);
+    screen.setTextColor(TFT_ORANGE, TFT_BLACK);
+    screen.drawString("CONFIG.", 80, 100);
+    Serial.println("CONFIG.");
+    screenLoaded = true;
+  }
+}
+
+void manageScreen(bool &screenLoaded, int &currentScreen) {
+  int buttonA = pcf.digitalRead(PCF_BUTTON_A);
+  if (screenLoaded == true && currentScreen == 0) {
+    if (buttonA == 0) {
+      screenLoaded = false;
+      currentScreen = 1;
+    }
+  } else if (screenLoaded == true && currentScreen == 1) {
+    if (buttonA == 0) {
+      screenLoaded = false;
+      currentScreen = 2;
+    }
+  } else if (screenLoaded == true && currentScreen == 2) {
+    if (buttonA == 0) {
+      screenLoaded = false;
+      currentScreen = 3;
+    }
+  } else if (screenLoaded == true && currentScreen == 3) {
+    if (buttonA == 0) {
+      screenLoaded = false;
+      currentScreen = 4;
+    }
+  } else if (screenLoaded == true && currentScreen == 4) {
+    if (buttonA == 0) {
+      screenLoaded = false;
+      currentScreen = 5;
+    }
+  } else if (screenLoaded == true && currentScreen == 5) {
+    if (buttonA == 0){
+      screenLoaded = false;
+      currentScreen = 0;
+    }
+  }
+}
 
 
 void loop() {
+  loadScreen(screenLoaded, currentScreen, steps);
+  manageScreen(screenLoaded, currentScreen);
   manageInter();
   delay(100);
 }
